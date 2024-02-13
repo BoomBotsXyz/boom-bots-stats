@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  boombots-stats
+
+  Tracker for Boombots stats
+
+Globals:
+  Function:
+    AutoPublishAlias: live
+    Tracing: Active
+    Environment:
+      Variables:
+        DEAD_LETTER_TOPIC: !Ref BoombotsStatsSnsTopic
+        DATA_BUCKET: stats.boombots.xyz.data
+    DeadLetterQueue:
+      Type: SNS
+      TargetArn: !Ref BoombotsStatsSnsTopic
+
+Resources:
+  # Rest API
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: BoombotsStatsApi
+      Domain:
+        DomainName: stats.boombots.xyz
+        CertificateArn: arn:aws:acm:us-west-2:776862011846:certificate/4baee897-43d7-4b0c-943e-40712e0e2fe6
+        Route53:
+          HostedZoneId: Z0566441TQW8907CAH38
+      StageName: prod
+      TracingEnabled: true
+  OptionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BoombotsStatsOptionsFunction
+      Handler: api/options.handler
+      Runtime: nodejs14.x
+      MemorySize: 128
+      Timeout: 10
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /
+            Method: options
+            RestApiId: !Ref RestApi
+  FaviconFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BoombotsStatsFaviconFunction
+      Handler: api/favicon/get.handler
+      Runtime: nodejs14.x
+      MemorySize: 128
+      Timeout: 10
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /favicon.ico
+            Method: get
+            RestApiId: !Ref RestApi
+  IndexFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BoombotsStatsIndexFunction
+      Handler: api/get.handler
+      Runtime: nodejs14.x
+      MemorySize: 128
+      Timeout: 10
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /
+            Method: get
+            RestApiId: !Ref RestApi
+  GetStateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BoombotsStatsGetStateFunction
+      Handler: api/state/get.handler
+      Runtime: nodejs14.x
+      MemorySize: 1024
+      Timeout: 900
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /state
+            Method: get
+            RestApiId: !Ref RestApi
+  GetBotMetadataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BoombotsStatsGetBotMetadataFunction
+      Handler: api/bots/metadata/get.handler
+      Runtime: nodejs14.x
+      MemorySize: 1024
+      Timeout: 900
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /bots/metadata
+            Method: get
+            RestApiId: !Ref RestApi
+  ContractUriFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BoombotsStatsContractUriFunction
+      Handler: api/contract_uri/get.handler
+      Runtime: nodejs14.x
+      MemorySize: 1024
+      Timeout: 900
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /contract_uri
+            Method: get
+            RestApiId: !Ref RestApi
+  # lambda execution role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: BoombotsStatsLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: BoombotsStatsLambdaExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "sns:Publish"
+                Resource: !Ref BoombotsStatsSnsTopic
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:DeleteObject"
+                  - "s3:ListBucket"
+                  - "s3:PutObject"
+                  - "s3:ReplicateObject"
+                  - "s3:RestoreObject"
+                Resource:
+                  - "arn:aws:s3:::stats.boombots.xyz.data"
+                  - "arn:aws:s3:::stats.boombots.xyz.data/*"
+                  - "arn:aws:s3:::stats-cdn.boombots.xyz"
+                  - "arn:aws:s3:::stats-cdn.boombots.xyz/*"
+                  - "arn:aws:s3:::assets.boombots.xyz"
+                  - "arn:aws:s3:::assets.boombots.xyz/*"
+  # Data Bucket
+  BoombotsStatsDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: stats.boombots.xyz.data
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - HEAD
+              - GET
+            AllowedOrigins:
+              - "*"
+            AllowedHeaders:
+              - "*"
+  # begin stats-cdn.boombots.xyz bucket and distribution
+  BoombotsStatsCdnDataWebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: stats-cdn.boombots.xyz
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - HEAD
+              - GET
+            AllowedOrigins:
+              - '*'
+            AllowedHeaders:
+              - '*'
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      Tags:
+        - Key: Project
+          Value: client
+  BoombotsStatsCdnDataWebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BoombotsStatsCdnDataWebsiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+            - "s3:GetObject"
+          Effect: "Allow"
+          Resource: arn:aws:s3:::stats-cdn.boombots.xyz/*
+          Principal:
+            AWS: !Join ["", ["arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ", "ENZYGQ4CE2XJG"] ]
+  BoombotsStatsCdnDataWebsiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: BoombotsStatsCdnDataWebsiteBucket
+            DomainName: stats-cdn.boombots.xyz.s3.amazonaws.com
+            S3OriginConfig:
+              OriginAccessIdentity: !Join ["", ["origin-access-identity/cloudfront/", "ENZYGQ4CE2XJG"] ]
+        Enabled: 'true'
+        Aliases:
+          - stats-cdn.boombots.xyz
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          ViewerProtocolPolicy: redirect-to-https
+          TargetOriginId: BoombotsStatsCdnDataWebsiteBucket
+          CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          OriginRequestPolicyId: "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf"
+          ResponseHeadersPolicyId: "5cc3b908-e619-4b99-88e5-2cf7f45965bd"
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: arn:aws:acm:us-east-1:776862011846:certificate/bc7679d0-5700-4845-861f-fd7b60473054
+          MinimumProtocolVersion: TLSv1.2_2018
+          SslSupportMethod: sni-only
+        HttpVersion: http2
+        IPV6Enabled: true
+      Tags:
+        - Key: Project
+          Value: client
+    DependsOn: BoombotsStatsCdnDataWebsiteBucketPolicy
+  BoombotsStatsCdnDataDnsZoneIPv4:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt BoombotsStatsCdnDataWebsiteDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2
+      HostedZoneName: boombots.xyz.
+      Name: stats-cdn.boombots.xyz
+      Type: A
+    DependsOn: BoombotsStatsCdnDataWebsiteDistribution
+  BoombotsStatsCdnDataDnsZoneIPv6:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt BoombotsStatsCdnDataWebsiteDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2
+      HostedZoneName: boombots.xyz.
+      Name: stats-cdn.boombots.xyz
+      Type: AAAA
+    DependsOn: BoombotsStatsCdnDataWebsiteDistribution
+  # end stats-cdn.boombots.xyz bucket and distribution
+  BoombotsStatsSnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: "Boombots Stats SNS Topic"
+      TopicName: "BoombotsStatsSnsTopic"
